@@ -10,22 +10,37 @@ import math
 # Box2D deals with meters, but we want to display pixels,
 # so define a conversion factor:
 PPM = 5.0  # pixels per meter
-TARGET_FPS = 60
+TARGET_FPS = 10
 TIME_STEP = 1.0 / TARGET_FPS
-SCREEN_WIDTH, SCREEN_HEIGHT = 640, 480
+SCREEN_WIDTH, SCREEN_HEIGHT = 640, 240
 
 WORLD_HEIGHT = SCREEN_HEIGHT/PPM
 WORLD_WIDTH = SCREEN_WIDTH/PPM
 
+CHECK_DELAY = 3
+MIN_DISTANCE = 2
+
 White = (255, 255, 255, 255)
 Grey = (127, 127, 127, 255)
+Red = (255, 127, 127, 255)
+Orange = (255, 180, 180, 255)
+Green = (127, 255, 127, 255)
+
+TARGET = (128, 23)
+ANCHOR = (18, 8)
+
 
 class Environment:
 
     def __init__(self, solution, render=False):
 
         self.time = 0
+        self.last_check = 0
         self.render = render
+        self.bridge_anchor = ANCHOR
+        self.next_anchor = self.bridge_anchor
+
+
 
         # --- pygame setup ---
         if self.render:
@@ -36,57 +51,47 @@ class Environment:
         self.world = World(gravity=(0, -10), do_sleep=True)
         self.running = True
 
-
-        ground_body_a = self.world.create_static_body(
+        self.world.create_static_body(
             position=(0, 0),
-            shapes=Polygon(box=(30, 20)),
+            shapes=Polygon(box=(20, 10)),
         )
 
-        ground_body_c = self.world.create_static_body(
-            position=(0, 0),
-            shapes=Polygon(box=(5, 100)),
-        )
-
-        ground_body_d = self.world.create_static_body(
+        self.world.create_static_body(
             position=(128, 0),
-            shapes=Polygon(box=(5, 100)),
-        )
-
-        ground_body_b = self.world.create_static_body(
-            position=(120, 0),
-            shapes=Polygon(box=(30, 20)),
+            shapes=Polygon(box=(20, 20)),
         )
 
         self.walker = self.world.create_dynamic_body(position=(10, 23), angle=15)
+        self.walker.create_polygon_fixture(box=(2, 1), density=1, friction=0.3)
+        self.walker.create_polygon_fixture(box=(1, 2), density=1, friction=0.3)
 
-        boxA = self.walker.create_polygon_fixture(box=(2, 1), density=1, friction=0.3)
+        self.last_walker_pos = self.walker.position
 
-        boxB = self.walker.create_polygon_fixture(box=(1, 2), density=1, friction=0.3)
+        dx = TARGET[0] - self.walker.position.x
+        dy = TARGET[1] - self.walker.position.y
 
-        for i in range(len(solution)//4):
+        self.targetDis = dx*dx+dy*dy
 
-            posX = WORLD_WIDTH*(solution[i+0] + solution[i+2])*0.5
-            posY = WORLD_HEIGHT*(solution[i + 1] + solution[i + 3]) * 0.5
+        for i in range(len(solution)//2):
 
-            dX = WORLD_WIDTH*(solution[i+0] - solution[i+2])
-            dY = WORLD_WIDTH*(solution[i + 1] - solution[i + 3])
+            degree = solution[i*2+0] * (2*math.pi)
+            length = solution[i*2+1] * 10 + 2
 
-            length = math.sqrt(dX*dX+dY*dY)
-            if length <= 0:
-                length = 1
+            pos_x = self.next_anchor[0] + length*math.cos(degree)
+            pos_y = self.next_anchor[1] + length*math.sin(degree)
 
-
-            if length > 0:
-                degree = math.atan(dY/length)
-            else:
-                degree = 0
+            # Calculate next Bridge Joint Position
+            self.next_anchor = (self.next_anchor[0] + length*math.cos(degree)*2,
+                                self.next_anchor[1] + length*math.sin(degree)*2)
 
             plank = self.world.create_static_body(
-                position=(posX, posY),
+                position=(pos_x, pos_y),
                 shapes=Polygon(box=(length, 1)),
                 angle=degree
             )
 
+            if self.render:
+                plank.user_data = True
 
     def step(self):
 
@@ -98,13 +103,35 @@ class Environment:
         self.world.step(TIME_STEP, 10, 10)
         self.time += TIME_STEP
 
+        dx = TARGET[0] - self.walker.position.x
+        dy = TARGET[1] - self.walker.position.y
+        dis = dx * dx + dy * dy
+
+        if dis < self.targetDis:
+            self.targetDis = dis
+
+
+        if self.time - self.last_check > CHECK_DELAY:
+            dx = self.walker.position.x - self.last_walker_pos.x
+            dy = self.walker.position.y - self.last_walker_pos.y
+
+            self.last_check = self.time
+            self.last_walker_pos = self.walker.position
+
+            # print("Distance: " + str(math.sqrt(dx*dx + dy*dy)))
+
+            minDis = MIN_DISTANCE*MIN_DISTANCE
+
+            if dx*dx + dy*dy < minDis:
+                self.running = False
+
         if abs(self.walker.angular_velocity) < 3:
-            self.walker.apply_angular_impulse(-5)
+            self.walker.apply_angular_impulse(-100*TIME_STEP)
 
         if self.walker.position.y < 0:
             self.running = False
 
-        if self.walker.position.x > WORLD_WIDTH*0.7:
+        if self.walker.position.x > WORLD_WIDTH*0.9:
             self.running = False
 
         if self.time > 40:
@@ -138,17 +165,30 @@ class Environment:
                     # the y components.
                     vertices = [(v[0], SCREEN_HEIGHT - v[1]) for v in vertices]
 
-                    pygame.draw.polygon(self.screen, White, vertices)
+                    if body.dynamic:
+                        pygame.draw.polygon(self.screen, Green, vertices)
+                    elif body.user_data:
+                        pygame.draw.polygon(self.screen, Red, vertices)
+                    else:
+                        pygame.draw.polygon(self.screen, White, vertices)
 
             # Flip the screen and try to keep at the target FPS
             pygame.display.flip()
+
+
+    def save_image(self, filename):
+
+        return pygame.image.save(self.screen, filename)
 
     def exit(self):
 
         if self.render:
             pygame.quit()
 
-        print("Took Time:" + str(self.time))
+        fitness = self.targetDis
 
-        return self.walker.position.x #- abs(23 - self.walker.position.y)
+        print("Took Time:" + str(self.time))
+        print("Fitness: " + str(fitness))
+
+        return fitness
 

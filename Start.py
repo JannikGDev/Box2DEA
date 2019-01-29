@@ -2,44 +2,44 @@ from Environment import Environment
 import time
 import numpy as np
 
-POPULATION_SIZE = 5
-MAX_ITERATIONS = 10
-SOLUTION_SIZE = 4
+MUTATIONS = 10
+MAX_ITERATIONS = 100
+PLANK_SIZE = 2
+SOLUTION_SIZE = 6*PLANK_SIZE
 SELECTION_SIZE = 1
-SIGMA_START = 1
+SIGMA_START = 0.2
 
 
 def start():
 
     population = []
-    sigma = SIGMA_START
+    best_solutions = []
 
     # Initialize random Population
     population.append(init_solution_decimal())
 
     counter = 0
 
-    fitnessData = []
     best_fitness = fitness(population[0])
     while counter < MAX_ITERATIONS:
         print("Step: " + str(counter))
-        best = select_best(population, min=False)
+        best = select_best(population, minimize=True)
+        best_solutions.append(best)
         show_solution(best)
         population = [best]
         best_fitness = fitness(best)
 
-        for i in range(1, POPULATION_SIZE):
-            sigma = 0.2
-            population.append(mutate_gauss(best, sigma))
+        for i in range(0, MUTATIONS):
 
-        fitnessData.append(best_fitness)
+            sigma = SIGMA_START
+            population.append(mutate_gauss_cycle_single(best, sigma))
 
         counter += 1
 
     best = population[0]
     print(best)
     print("Fitness: " + str(best_fitness))
-
+    save_solutions(best_solutions)
     show_solution(best)
 
 
@@ -60,7 +60,23 @@ def init_solution_decimal():
     return x
 
 
-def select_best(population, min=True):
+def save_solutions(solutions):
+
+    with open('data/best_solutions.txt', 'w') as file:  # Use file to refer to the file object
+
+        for solution in solutions:
+
+            line = ""
+
+            for value in solution:
+                line += str(value) + ","
+
+            line = line[0:len(line)-1]
+
+            file.write(line + "\n")
+
+
+def select_best(population, minimize=True):
 
     best = population[0]
     bestFitness = fitness(best)
@@ -69,10 +85,10 @@ def select_best(population, min=True):
 
         currentFitness = fitness(population[i])
 
-        if currentFitness <= bestFitness and min:
+        if currentFitness <= bestFitness and minimize:
             best = population[i]
             bestFitness = currentFitness
-        elif min == False and currentFitness >= bestFitness:
+        elif minimize == False and currentFitness >= bestFitness:
             best = population[i]
             bestFitness = currentFitness
 
@@ -90,6 +106,45 @@ def mutate_gauss(x, sigma):
 
     return x_
 
+
+def mutate_gauss_cycle(x, sigma):
+
+    x_ = x.copy()
+
+    for i in range(0, len(x_)):
+        x_[i] = x_[i] + sigma * np.random.randn(1)
+
+        if i % 2 == 0:
+            if x_[i] > 1.0:
+                x_[i] = x_[i] % 1.0
+
+            if x_[i] < 0.0:
+                x_[i] += 1.0
+
+    x_ = np.clip(x_, 0, 1)
+
+    return x_
+
+
+def mutate_gauss_cycle_single(x, sigma):
+    x_ = x.copy()
+
+    selected = np.random.randint(0, len(x))
+
+    x_[selected] = x_[selected] + sigma * np.random.randn(1)
+
+    if selected % 2 == 0:
+        if x_[selected] > 1.0:
+            x_[selected] = x_[selected] % 1.0
+
+        if x_[selected] < 0.0:
+            x_[selected] += 1.0
+
+    x_ = np.clip(x_, 0, 1)
+
+    return x_
+
+
 def fitness(solution):
 
     env = Environment(solution)
@@ -98,19 +153,6 @@ def fitness(solution):
         env.step()
 
     return env.exit()
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 if __name__ == "__main__":
